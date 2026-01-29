@@ -2,25 +2,44 @@ import streamlit as st
 import pandas as pd
 import requests
 from io import BytesIO
-import chardet
+
+# --- 嘗試匯入 chardet，如果沒有安裝則設為 None (避免報錯) ---
+try:
+    import chardet
+except ImportError:
+    chardet = None
 
 st.set_page_config(page_title="Upload Data", page_icon="📥", layout="wide")
 
 st.title("📥 Import Data")
 st.markdown("請選擇資料來源：本機檔案上傳 或 雲端連結匯入。")
 
+# 如果沒有 chardet，給個小提示（只有開發者看得到 warning，不影響使用者）
+if chardet is None:
+    print("Warning: 'chardet' module not found. Defaulting to UTF-8 encoding. (Add 'chardet' to requirements.txt for better encoding support)")
+
 # 使用 Tabs 分離邏輯，介面更清爽
 tab1, tab2 = st.tabs(["📂 Upload File (CSV/Excel)", "☁️ Import from URL"])
 
-# ========= 快取讀檔函式 =========
+# ========= 快取讀檔函式 (修正版：相容無 chardet 環境) =========
 @st.cache_data(show_spinner=False)
 def load_data_from_bytes(file_bytes, filename):
     """通用讀檔邏輯：根據副檔名自動判斷解析方式"""
     try:
         if filename.lower().endswith(".csv"):
-            # 自動偵測編碼
-            enc = chardet.detect(file_bytes).get("encoding") or "utf-8"
-            return pd.read_csv(BytesIO(file_bytes), encoding=enc)
+            # 1. 嘗試偵測編碼 (如果有 chardet)
+            enc = "utf-8"
+            if chardet:
+                detected = chardet.detect(file_bytes)
+                enc = detected.get("encoding") or "utf-8"
+            
+            # 2. 讀取 CSV
+            try:
+                return pd.read_csv(BytesIO(file_bytes), encoding=enc)
+            except UnicodeDecodeError:
+                # 如果偵測失敗或預設 utf-8 失敗，嘗試常見的 big5 (針對繁體中文 Excel CSV)
+                return pd.read_csv(BytesIO(file_bytes), encoding="big5")
+                
         else:
             # Excel
             return pd.read_excel(BytesIO(file_bytes))
